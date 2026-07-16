@@ -93,6 +93,12 @@ struct Profile {
     char wg_addr[24];
     char wg_pubkey[50];
     char wg_endpoint[48];
+
+    // for keys, 
+    bool use_ssh_keys;
+    char ssh_pubkey_file[40];
+    char ssh_pubkey[80];
+    char ssh_privkey[412];
 };
 
 struct LItem {
@@ -184,6 +190,7 @@ const char* P_WIFI  = "/SSHAdv/wifi.cfg";
 const char* P_USERS = "/SSHAdv/users.cfg";
 const char* P_SETT  = "/SSHAdv/settings.cfg";
 const char* P_WG    = "/SSHAdv/wg";
+const char* P_SSHKEY    = "/SSHAdv/keys";
 
 // ── Forward declarations ───────────────────────────────────────────────────────
 void runHome();
@@ -633,6 +640,8 @@ void saveSettings() {
 //  FILE I/O  (profiles, wifi, users)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ssh keys
+
 String profPath(const char* n) { return String("/SSHAdv/") + n + ".prof"; }
 
 bool parseProf(File& f, Profile& p) {
@@ -654,6 +663,9 @@ bool parseProf(File& f, Profile& p) {
         else if (k=="wg_addr")     strncpy(p.wg_addr,     v.c_str(), sizeof(p.wg_addr)-1);
         else if (k=="wg_pubkey")   strncpy(p.wg_pubkey,   v.c_str(), sizeof(p.wg_pubkey)-1);
         else if (k=="wg_endpoint") strncpy(p.wg_endpoint, v.c_str(), sizeof(p.wg_endpoint)-1);
+        else if (k=="ssh_keys")    p.use_ssh_keys = (v=="1");
+        else if (k=="ssh_pubkey_file") strncpy(p.ssh_pubkey_file, v.c_str(), sizeof(p.ssh_pubkey_file)-1);
+
     }
     return p.name[0] && p.host[0];
 }
@@ -678,6 +690,8 @@ void saveProf(const Profile& p) {
              p.name, p.host, p.user, p.pass, p.port);
     f.printf("wg=%d\nwg_conffile=%s\nwg_privkey=%s\nwg_addr=%s\nwg_pubkey=%s\nwg_endpoint=%s\n",
              p.useWG?1:0, p.wg_conffile, p.wg_privkey, p.wg_addr, p.wg_pubkey, p.wg_endpoint);
+    f.printf("ssh_keys=%d\nssh_pubkey_file=%s\n",
+             p.use_ssh_keys?1:0, p.ssh_pubkey_file);
     f.close();
 }
 
@@ -793,6 +807,122 @@ bool pickWGConf(Profile& p) {
     return false;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SSH_KEYS CONFIG PICKER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+bool parseSSHKEYFile(const char* path, Profile& p) {
+    // save public key
+    File f = SD.open(path); 
+    if (!f) {
+      bprint("Pub keys are not present", C_ERR);
+      return false;
+    } else {
+      bprint("Pub keys presence", C_OK);
+    }
+
+    while (f.available()) {
+        String ln = f.readString(); ln.trim();
+        int eq = ln.indexOf(' '); if (eq<0) continue;
+        // make sure generated key is of ssh-ed22519 format with 80 chars  
+        int eq2 = ln.lastIndexOf(' '); 
+        if (eq2!=80) {
+          bprint("less than 80 chars", C_ERR);
+          continue; 
+        }
+        String k = ln.substring(0,eq); k.trim();
+        String v = ln.substring(eq+1, eq2); v.trim();
+
+        if (k=="ssh-ed25519") {
+          strncpy(p.ssh_pubkey,  v.c_str(), sizeof(p.ssh_pubkey)-1);
+        } else {
+          bprint("Use ed25519", C_ERR);
+          continue;
+        }
+        M5Cardputer.Display.print(p.ssh_pubkey);
+     }
+    f.close();
+
+    return p.ssh_pubkey[0]; 
+}
+
+bool parseSSHKEYFile_Priv(const char* path, Profile& p) {
+    // save private key
+    File f = SD.open(path); 
+    
+    if (!f) {
+      bprint("Priv keys are not present", C_ERR);
+      return false;
+    } else {
+      bprint("Priv keys presence", C_OK);
+    }
+
+    while (f.available()) {
+      String ln = f.readString(); ln.trim();
+      strncpy(p.ssh_privkey,  ln.c_str(), sizeof(p.ssh_privkey)-1);
+    }
+    f.close();
+
+    return p.ssh_privkey[0]; 
+}
+
+
+bool pickSSHConf(Profile& p) {
+    static char names[MAX_WGF][40];
+    static const char* ptrs[MAX_WGF];
+    int n = 0;
+    File dir = SD.open(P_SSHKEY);
+    if (dir && dir.isDirectory()) {
+        File e;
+        while ((e = dir.openNextFile()) && n < MAX_WGF) {
+            String fn = String(e.name());
+            int slash = fn.lastIndexOf('/');
+            if (slash >= 0) fn = fn.substring(slash + 1);
+            if (fn.length() > 0 && fn.endsWith(".pub")) {
+                strncpy(names[n], fn.c_str(), 39);
+                names[n][39] = '\0';
+                ptrs[n] = names[n];
+                n++;
+            }
+            e.close();
+        }
+        dir.close();
+    }
+
+    if (n == 0) {
+        screenInit("SSH keys Files", ",=back");
+        bprint("No .pub files found!", C_WARN);
+        bprint("Copy public keys & priv keys", C_DIM);
+        bprint("to the SD card at:", C_DIM);
+        bprint("/SSHAdv/keys/", C_TITFG);
+        bprint("e.g. /SSHAdv/keys/", C_DIM);
+        bprint("     t.pub t", C_DIM);
+        bprint("Then retry.", C_DIM);
+        while (waitCh() != KLEFT) {}
+        return false;
+    }
+
+    int ch = pickStr(ptrs, n, "Key pairs No.");
+    if (ch < 0) return false;
+
+    screenInit("Loading Key pairs", "");
+    bprintf(C_DIM, "Loading: %s", names[ch]);
+    String path = String(P_SSHKEY) + "/" + names[ch];
+    if (parseSSHKEYFile(path.c_str(), p)) {
+        strncpy(p.ssh_pubkey_file, names[ch], sizeof(p.ssh_pubkey_file)-1);
+        bprint("Pubkey Parsed OK", C_OK); delay(600);
+        // remove the .pub for privkey
+       	path.remove(path.lastIndexOf('.'));
+        if (parseSSHKEYFile_Priv(path.c_str(), p)) {
+        	bprint("PrivKey Parsed OK", C_OK); delay(600);
+        	return true;
+	}
+    }
+    bprint("Parse failed!", C_ERR); delay(1200);
+    return false;
+}
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PROFILE DETAIL CARD
@@ -840,8 +970,14 @@ void profileCard(const Profile& p) {
     } else {
         row("WG:    ", "disabled", C_DIM);
     }
-}
 
+    if (p.use_ssh_keys) {
+        row("Public:   ", p.ssh_pubkey_file);
+    } else {
+        row("keys:    ", "disabled", C_DIM);
+    }
+
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PROFILE EDIT / CREATE
@@ -928,6 +1064,21 @@ void editProfile(int idx) {
             }
         }
     }
+
+    { const char* so[]={ "No SSH KEYS","Use KEYS" };
+      int ch=pickStr(so,2,"KEYS",p.use_ssh_keys?1:0);
+      if (ch>=0) p.use_ssh_keys=(ch==1);
+    }
+
+    // ssh key picker
+    if (p.use_ssh_keys) {
+        const char* sshOpts[] = { "Pick key pairs", "Cancel" };
+        int sshChoice = pickStr(sshOpts, 2, "SSH keys");
+        if (sshChoice == 0) {
+            pickSSHConf(p);
+        } 
+    }
+
 
     if (yesNo(p.name,"Save profile?",true)) {
         if (!isNew && strcmp(g_prof[idx].name,p.name)!=0)
@@ -1363,6 +1514,58 @@ void runHome() {
 //  CONNECT  (WireGuard + SSH)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+static int auth_keyfile(ssh_session session, char* keyfile,  const char* pubkey,  const char* prikey)
+{
+    ssh_key key = NULL;
+
+    int rc;
+   
+    // --------- Public key importing.
+    rc = ssh_pki_import_pubkey_base64(pubkey, SSH_KEYTYPE_ED25519, &key);  // import value to key
+
+    if (rc == SSH_OK)  { 
+    	bprint("File exists...", C_OK);
+    }
+    else if (rc == SSH_EOF) {
+    	bprint("File doesn't exists...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+    else if (rc == SSH_ERROR) {
+    	bprint("Key Parsing Error...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+
+    // --------- Public key imported from file check. 
+    rc = ssh_userauth_try_publickey(session, NULL, key);
+    ssh_key_free(key);
+
+    if (rc == SSH_AUTH_SUCCESS) {
+    	bprint("KEYauth accepted...", C_OK);
+    }
+    else if (rc == SSH_AUTH_ERROR) {
+ 	bprint("KEYauth failed...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+    else if (rc == SSH_AUTH_DENIED) {
+ 	bprint("KEYauth Denied...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+
+    // --------- Private key importing.
+    rc = ssh_pki_import_privkey_base64(prikey, nullptr, nullptr, nullptr, &key);
+
+    if (rc != SSH_OK) {
+   	bprint("Privkey Denied...", C_ERR);
+        return SSH_AUTH_DENIED;
+     }
+
+    rc = ssh_userauth_publickey(session, NULL, key);
+    ssh_key_free(key);
+
+    return rc;
+}
+
+
 static void sshConnectTask(void* arg) {
     SSHTaskCtx* ctx = (SSHTaskCtx*)arg;
     const Profile& p = ctx->prof;
@@ -1373,13 +1576,16 @@ static void sshConnectTask(void* arg) {
         ctx->state = 2; vTaskDelete(NULL); return;
     }
 
-    int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30;
+    //int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30, pub =1;
+    // more logs
+    int verb = SSH_LOG_PROTOCOL, port = p.port, timeout = 30, pub =1;
     ssh_options_set(ctx->sess, SSH_OPTIONS_HOST, p.host);
     ssh_options_set(ctx->sess, SSH_OPTIONS_USER, p.user);
     ssh_options_set(ctx->sess, SSH_OPTIONS_PORT, &port);
     ssh_options_set(ctx->sess, SSH_OPTIONS_LOG_VERBOSITY, &verb);
     ssh_options_set(ctx->sess, SSH_OPTIONS_TIMEOUT, &timeout);
-
+    // added.
+    ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
     if (g_taskAbort || ssh_connect(ctx->sess) != SSH_OK) {
         if (g_taskAbort) strlcpy(ctx->errmsg, "Aborted", sizeof(ctx->errmsg));
         else snprintf(ctx->errmsg, sizeof(ctx->errmsg), "Conn: %s", ssh_get_error(ctx->sess));
@@ -1402,10 +1608,22 @@ static void sshConnectTask(void* arg) {
         }
     }
 
-    if (ssh_userauth_password(ctx->sess, nullptr, p.pass) != SSH_AUTH_SUCCESS) {
-        strlcpy(ctx->errmsg, "Auth failed", sizeof(ctx->errmsg));
-        ssh_disconnect(ctx->sess); ssh_free(ctx->sess); ctx->sess = nullptr;
-        ctx->state = 2; vTaskDelete(NULL); return;
+    if  (p.use_ssh_keys) {
+        // push content from profile's key pairs to p.ssh_pubkey, p.ssh_privkey
+        String path = String(P_SSHKEY) + "/" + String(p.ssh_pubkey_file);
+        parseSSHKEYFile(path.c_str(), ctx->prof);
+       	path.remove(path.lastIndexOf('.'));
+        parseSSHKEYFile_Priv(path.c_str(), ctx->prof);
+
+        if  (auth_keyfile(ctx->sess, nullptr ,p.ssh_pubkey, p.ssh_privkey) != SSH_AUTH_SUCCESS) {
+            	strlcpy(ctx->errmsg, "Key Auth Failed", sizeof(ctx->errmsg));
+            	ssh_disconnect(ctx->sess); ssh_free(ctx->sess); ctx->sess = nullptr;
+	            ctx->state = 2; vTaskDelete(NULL); return;
+        	}
+        } else if (ssh_userauth_password(ctx->sess, nullptr, p.pass) != SSH_AUTH_SUCCESS) {
+            strlcpy(ctx->errmsg, "Password Auth failed", sizeof(ctx->errmsg));
+            ssh_disconnect(ctx->sess); ssh_free(ctx->sess); ctx->sess = nullptr;
+            ctx->state = 2; vTaskDelete(NULL); return;
     }
 
     ctx->ch = ssh_channel_new(ctx->sess);
@@ -1471,6 +1689,7 @@ void runConnect(int idx) {
     bprint("SSH connecting...", C_DIM);
     g_taskAbort = false;
     g_sshTask   = nullptr;
+    // initialization. 
     xTaskCreatePinnedToCore(sshConnectTask, "ssh_conn", 32768,
                             &g_sshCtx, 5, &g_sshTask, 0);
     if (!g_sshTask) {
@@ -2035,8 +2254,9 @@ void setup() {
 
     bool sdOk=SD.begin(M5.getPin(m5::pin_name_t::sd_spi_ss));
     if (sdOk) {
-        if (!SD.exists("/SSHAdv"))    SD.mkdir("/SSHAdv");
+        if (!SD.exists("/SSHAdv"))   SD.mkdir("/SSHAdv");
         if (!SD.exists(P_WG))        SD.mkdir(P_WG);
+        if (!SD.exists(P_SSHKEY))   SD.mkdir(P_SSHKEY);
         loadProfiles();
         loadUsers();
         loadSettings();
@@ -2066,7 +2286,7 @@ void setup() {
 
     // Auto-connect after WG config switch restart
     if (g_bootProfileIdx >= 0) {
-        int autoIdx = g_bootProfileIdx;
+        int autoIdx = g_bootProfileIdx;   
         g_bootProfileIdx = -1;
         if (autoIdx < g_profCnt && g_wifiOk) {
             bprint("Resuming...", C_DIM);
