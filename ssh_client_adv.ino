@@ -1603,7 +1603,7 @@ static void sshConnectTask(void* arg) {
     ssh_options_set(ctx->sess, SSH_OPTIONS_LOG_VERBOSITY, &verb);
     ssh_options_set(ctx->sess, SSH_OPTIONS_TIMEOUT, &timeout);
     // added.
-    ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
+    // ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
     if (g_taskAbort || ssh_connect(ctx->sess) != SSH_OK) {
         if (g_taskAbort) strlcpy(ctx->errmsg, "Aborted", sizeof(ctx->errmsg));
         else snprintf(ctx->errmsg, sizeof(ctx->errmsg), "Conn: %s", ssh_get_error(ctx->sess));
