@@ -15,6 +15,7 @@ A full-featured SSH client for the [M5Stack Cardputer](https://docs.m5stack.com/
 - **WiFi manager** — scan, connect, save credentials; auto-connect on boot
 - **Settings** — screen timeout, SSH idle timeout, brightness, keep-alive, password display mode
 - **Remembered usernames** — recently used SSH usernames offered as quick picks
+- **Supports multiple password less ed25519 type key pairs
 
 ---
 
@@ -63,12 +64,20 @@ Install WireGuard-ESP32-bis and LibSSH-ESP32 via **Sketch → Include Library �
 ├── settings.cfg    — all app settings
 ├── 0.prof          — SSH profile 0
 ├── 1.prof          — SSH profile 1
-└── wg/
-    ├── home.conf   — WireGuard config (standard format)
-    └── work.conf
+├── wg/
+│   ├── home.conf   — WireGuard config (standard format)
+│   └── work.conf
+└── keys/
+    ├── id_ed25519.pub    — Passwordless ED25519 Public key (standard OpenSSH format)   
+    ├── id_ed25519        — Corresponding private key       
+    ├── id_card_hpc.pub   — Yet another key
+    └── id_card_hpc
+
 ```
 
 WireGuard `.conf` files use the standard format exported by any WireGuard server or client.
+
+SSH Key pairs use the standard OpenSSH format, at the moment package supports only type ed25519 keys (default in most of the \*nix systems).
 
 ---
 
