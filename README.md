@@ -15,7 +15,7 @@ A full-featured SSH client for the [M5Stack Cardputer](https://docs.m5stack.com/
 - **WiFi manager** — scan, connect, save credentials; auto-connect on boot
 - **Settings** — screen timeout, SSH idle timeout, brightness, keep-alive, password display mode
 - **Remembered usernames** — recently used SSH usernames offered as quick picks
-- **Supports multiple password less ed25519 type key pairs
+- **SSH Keys** Supports multiple password less ed25519 type key pairs
 
 ---
 
