@@ -77,7 +77,7 @@ Install WireGuard-ESP32-bis and LibSSH-ESP32 via **Sketch â†’ Include Library â†
 
 WireGuard `.conf` files use the standard format exported by any WireGuard server or client.
 
-SSH Key pairs use the standard OpenSSH format, at the moment package supports only type ed25519 keys (default in most of the \*nix systems).
+SSH Key pairs use the standard OpenSSH format, at the moment package supports only type ed25519 keys (default key type in OpenSSH since version 9.5).
 
 ---
 
