@@ -117,6 +117,7 @@ struct Settings {
     int  sshTimeoutMin;
     int  wifiTimeoutMin;
     int  brightness;
+    int  titleToggle;
     int  termFontSize;
     bool keepAlive;
     bool buzzer;
@@ -170,7 +171,7 @@ bool     g_wifiOk    = false;
 char     g_users[MAX_USR][32];
 int      g_userCnt   = 0;
 
-Settings g_cfg = { 60, 0, 0, 128, 1, true, false, 22, true, 0 };
+Settings g_cfg = { 60, 0, 0, 128, 0, 1, true, false, 22, true, 0 };
 
 struct SSHTaskCtx {
     Profile      prof;
@@ -632,6 +633,7 @@ void loadSettings() {
         else if (k=="ssh_timeout")    g_cfg.sshTimeoutMin    = v;
         else if (k=="wifi_timeout")   g_cfg.wifiTimeoutMin   = v;
         else if (k=="brightness")     g_cfg.brightness       = v;
+        else if (k=="title_toggle")   g_cfg.titleToggle      = (v==1)?1:0;
         else if (k=="term_font")      g_cfg.termFontSize     = (v==2)?2:1;
         else if (k=="keepalive")      g_cfg.keepAlive        = (v==1);
         else if (k=="buzzer")         g_cfg.buzzer           = (v==1);
@@ -648,8 +650,8 @@ void saveSettings() {
     File f = SD.open(P_SETT, FILE_WRITE); if (!f) return;
     f.printf("screen_timeout=%d\nssh_timeout=%d\nwifi_timeout=%d\n",
              g_cfg.screenTimeoutSec, g_cfg.sshTimeoutMin, g_cfg.wifiTimeoutMin);
-    f.printf("brightness=%d\nterm_font=%d\nkeepalive=%d\nbuzzer=%d\ndefault_port=%d\nauto_connect=%d\npass_display=%d\n",
-             g_cfg.brightness, g_cfg.termFontSize, g_cfg.keepAlive?1:0,
+    f.printf("brightness=%d\ntitle_toggle=%d\nterm_font=%d\nkeepalive=%d\nbuzzer=%d\ndefault_port=%d\nauto_connect=%d\npass_display=%d\n",
+             g_cfg.brightness, g_cfg.titleToggle, g_cfg.termFontSize, g_cfg.keepAlive?1:0,
              g_cfg.buzzer?1:0, g_cfg.defaultPort, g_cfg.autoConnect?1:0,
              g_cfg.passDisplay);
     f.close();
@@ -1349,17 +1351,22 @@ void runSettings() {
 
         } else if (cat == 1) {
             while (true) {
-                char fntBuf[32], buzBuf[32];
+                char titleBuf[32], fntBuf[32], buzBuf[32];
+                snprintf(titleBuf, sizeof(titleBuf), "Title Toggle   %d", g_cfg.titleToggle);
                 snprintf(fntBuf, sizeof(fntBuf), "Font size   %d", g_cfg.termFontSize);
                 snprintf(buzBuf, sizeof(buzBuf), "Buzzer      %s", g_cfg.buzzer ? "On" : "Off");
-                const char* opts[] = { fntBuf, buzBuf, "< Back" };
-                int ch = pickStr(opts, 3, "Terminal");
+                const char* opts[] = { titleBuf, fntBuf, buzBuf, "< Back" };
+                int ch = pickStr(opts, 4, "Terminal");
                 if (ch < 0 || ch == 2) break;
                 if (ch == 0) {
+                    const char* sc[] = { "0  No", "1  Yes" };
+                    int p = pickStr(sc, 2, "Remove Top bar", g_cfg.titleToggle == 1 ? 1 : 0);
+                    if (p >= 0) { g_cfg.titleToggle = (p == 1) ? 1: 0; saveSettings(); }
+                } else if (ch == 1) { 
                     const char* sc[] = { "1  (more text)", "2  (larger)" };
                     int p = pickStr(sc, 2, "Font Size", g_cfg.termFontSize == 2 ? 1 : 0);
                     if (p >= 0) { g_cfg.termFontSize = (p == 1) ? 2 : 1; saveSettings(); }
-                } else if (ch == 1) {
+                } else if (ch == 2) {
                     const char* sc[] = { "Off", "On" };
                     int p = pickStr(sc, 2, "Buzzer", g_cfg.buzzer ? 1 : 0);
                     if (p >= 0) { g_cfg.buzzer = (p == 1); saveSettings(); }
@@ -1646,7 +1653,8 @@ static void sshConnectTask(void* arg) {
 
     ctx->ch = ssh_channel_new(ctx->sess);
     int termCols = (g_cfg.termFontSize == 2) ? TERM_COLS/2 : TERM_COLS;
-    int termRows = (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS;
+    // int termRows = (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS;
+    int termRows = (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2))/2 : TERM_ROWS+(g_cfg.titleToggle*2);
 
     if (!ctx->ch ||
         ssh_channel_open_session(ctx->ch) != SSH_OK ||
@@ -1759,9 +1767,10 @@ void runConnect(int idx) {
     ssh_channel ch   = g_sshCtx.ch;
 
     M5Cardputer.Display.fillScreen(C_BG);
-    titleBar(p.name);
+    // toggle Title Bar
+    if (g_cfg.titleToggle == 0) titleBar(p.name);
 
-    runSSHTerm(sess, ch);
+    runSSHTerm(sess, ch, p.name);
 
     if (ch) {
         ssh_channel_send_eof(ch);
@@ -1795,8 +1804,10 @@ struct TCell {
     bool     bold;
 };
 
-void runSSHTerm(ssh_session sess, ssh_channel ch) {
-    const int TOP  = TITLEH + 2;
+void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
+    // variable to store toggling
+    auto title_tog = [&]() { return (g_cfg.titleToggle == 1) ? 4: TITLEH+2; };
+    int TOP  = title_tog(); 
     const int BOT  = DH - HINTH;
 
     const int MAXCOLS = TERM_COLS;
@@ -1813,7 +1824,8 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
 
     auto lh       = [&]() { return g_cfg.termFontSize * 8; };
     auto termCols = [&]() { return (g_cfg.termFontSize == 2) ? TERM_COLS/2 : TERM_COLS; };
-    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS; };
+    // auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS; };
+    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2))/2 : TERM_ROWS+(g_cfg.titleToggle*2); };
     auto cw       = [&]() { return g_cfg.termFontSize * 6; };
     auto rowY     = [&](int r) { return TOP + r * lh(); };
     auto activeBuf= [&]() -> TCell(*)[MAXCOLS] { return tbuf[altScreen ? 1 : 0]; };
@@ -1987,6 +1999,24 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
                             showHint();
                             ssh_channel_change_pty_size(ch, tCols, tRows);
                         }
+
+                        // hide_TOPS
+                         if (a == 'h') {
+                            g_cfg.titleToggle =  (g_cfg.titleToggle == 0) ? 1: 0;
+                            TOP  = title_tog(); 
+                            tCols = termCols(); tRows = termRows();
+                            scrollTop = 0; scrollBot = tRows - 1;
+                            clearBuf(0); clearBuf(1);
+                            if (g_cfg.titleToggle == 0) {
+                               titleBar(name);
+                             } else {
+                               M5Cardputer.Display.fillRect(0, 0, DW, TOP, C_BG);
+                            }
+                            M5Cardputer.Display.fillRect(0, TOP , DW, BOT - TOP, C_BG);
+                            showHint();
+                            ssh_channel_change_pty_size(ch, tCols, tRows);
+                        }
+                       
                         if (hid == 0x33) ssh_channel_write(ch, "\x1b[A", 3);
                         if (hid == 0x37) ssh_channel_write(ch, "\x1b[B", 3);
                         if (hid == 0x38) ssh_channel_write(ch, "\x1b[C", 3);
