@@ -22,6 +22,7 @@
  *   Fn + ; . , /  →  Up / Down / Left / Right arrow
  *   Fn + Q        →  Quit session
  *   Fn + F        →  Toggle font size
+ *   Fn + H        →  Toggle Title Bar
  *   Ctrl + letter →  Send control character (^C, ^D, ^Z …)
  *   G0 button     →  Quit session
  */
