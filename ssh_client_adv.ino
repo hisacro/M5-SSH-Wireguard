@@ -2004,6 +2004,7 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
                         // hide_TOPS
                          if (a == 'h') {
                             g_cfg.titleToggle =  (g_cfg.titleToggle == 0) ? 1: 0;
+                            saveSettings();
                             TOP  = title_tog(); 
                             tCols = termCols(); tRows = termRows();
                             scrollTop = 0; scrollBot = tRows - 1;
