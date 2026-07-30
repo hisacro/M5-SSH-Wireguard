@@ -18,6 +18,12 @@ A full-featured SSH client for the [M5Stack Cardputer](https://docs.m5stack.com/
 - **Remembered usernames** — recently used SSH usernames offered as quick picks
 - **SSH Keys** — Supports multiple password less ed25519 type key pairs
 
+### Experimental
+
+- **Toggle TomThumb Font** togglee in-session TomThumb Font in two different widths (6x3 or 6x4 characters) or default font (8x6 character) 
+- **Extra term sizes**   With combination of tittleToggle (hide term bar) \* TTfToggle (Font0 or TomThumb) \* TTfRows (60 or 80 characters) there are **12** sizes.  The maximum term size going till **80x20** characters,  while the resonably legible size till **60x20 characters**  (refer https://github.com/bpivk/M5-SSH-Wireguard/issues/2 for examples)
+- **Bug** 79th, 80th gets gobbled in the maximum term size and similary 60th character gets gobbled. Cursor while using TomThumb occupies 2 characters.
+
 ---
 
 ## Hardware
