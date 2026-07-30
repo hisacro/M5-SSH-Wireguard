@@ -20,7 +20,7 @@ A full-featured SSH client for the [M5Stack Cardputer](https://docs.m5stack.com/
 
 ### Experimental
 
-- **Toggle TomThumb Font** togglee in-session TomThumb Font in two different widths (6x3 or 6x4 characters) or default font (8x6 character) 
+- **Toggle TomThumb Font** togglee in-session TomThumb Font with `Fn+T`. Comes in two different widths (6x3 or 6x4 characters) or default font (8x6 character) 
 - **Extra term sizes**   With combination of tittleToggle (hide term bar) \* TTfToggle (Font0 or TomThumb) \* TTfRows (60 or 80 characters) there are **12** sizes.  The maximum term size going till **80x20** characters,  while the resonably legible size till **60x20 characters**  (refer https://github.com/bpivk/M5-SSH-Wireguard/issues/2 for examples)
 - **Bug** 79th, 80th gets gobbled in the maximum term size and similary 60th character gets gobbled. Cursor while using TomThumb occupies 2 characters.
 
@@ -121,6 +121,7 @@ The Cardputer-Adv requires manual download mode:
 | `Fn + Q` | Quit session |
 | `Fn + F` | Toggle font size (40×14 ↔ 20×7) |
 | `Fn + H` | Toggle Terminal Title Bar |
+| `Fn + T` | Toggle Default - Font0, TomThumb in 2 sizes |
 | `Ctrl + letter` | Send control character (`^C`, `^D`, `^Z` …) |
 | `Ctrl + [` | Send ESC (for vim) |
 | `Tab` | Tab / shell completion |
