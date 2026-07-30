@@ -1358,7 +1358,7 @@ void runSettings() {
                 snprintf(buzBuf, sizeof(buzBuf), "Buzzer      %s", g_cfg.buzzer ? "On" : "Off");
                 const char* opts[] = { titleBuf, fntBuf, buzBuf, "< Back" };
                 int ch = pickStr(opts, 4, "Terminal");
-                if (ch < 0 || ch == 2) break;
+                if (ch < 0 || ch == 3) break;
                 if (ch == 0) {
                     const char* sc[] = { "0  No", "1  Yes" };
                     int p = pickStr(sc, 2, "Remove Top bar", g_cfg.titleToggle == 1 ? 1 : 0);
