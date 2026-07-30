@@ -113,6 +113,7 @@ The Cardputer-Adv requires manual download mode:
 | `Fn + ; . , /` | Arrow keys (↑ ↓ ← →) |
 | `Fn + Q` | Quit session |
 | `Fn + F` | Toggle font size (40×14 ↔ 20×7) |
+| `Fn + H` | Toggle Terminal Title Bar |
 | `Ctrl + letter` | Send control character (`^C`, `^D`, `^Z` …) |
 | `Ctrl + [` | Send ESC (for vim) |
 | `Tab` | Tab / shell completion |
