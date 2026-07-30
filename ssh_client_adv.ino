@@ -1840,7 +1840,7 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
 
     auto lh       = [&]() { return (g_cfg.TTfToggle == 0) ? g_cfg.termFontSize * 8 : g_cfg.termFontSize * 6; };
     auto termCols = [&]() { return (g_cfg.termFontSize == 2) ? (TERM_COLS+(g_cfg.TTfRows*g_cfg.TTfToggle*20))/2 : TERM_COLS+(g_cfg.TTfRows*g_cfg.TTfToggle*20); };
-    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2)+(g_cfg.TTfToggle*(3+g_cfg.titleToggle)))/2 : TERM_ROWS+(g_cfg.titleToggle*2)+(g_cfg.TTfToggle*(5+g_cfg.titleToggle)); }; // (14/16) = normal with titleToggle or (17/21) TomThumb with tittleToggle
+    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2)+(g_cfg.TTfToggle*(3+g_cfg.titleToggle)))/2 : TERM_ROWS+(g_cfg.titleToggle*2)+(g_cfg.TTfToggle*(5+g_cfg.titleToggle)); }; // (14/16) = normal with titleToggle or (19/22) TomThumb with tittleToggle
     auto cw       = [&]() { return (g_cfg.TTfToggle == 0) ? g_cfg.termFontSize * 6: g_cfg.termFontSize * (5-g_cfg.TTfRows); }; // 6 or 4 or 3
 
     auto rowY     = [&](int r) { return TOP + r * lh(); };
