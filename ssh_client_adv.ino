@@ -1878,7 +1878,6 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
         for (int rep = 0; rep < n2; rep++) {
             for (int r = fromRow; r < scrollBot; r++)
                 memcpy(activeBuf()[r], activeBuf()[r+1], sizeof(TCell)*MAXCOLS);
-            memset(activeBuf()[scrollBot], 0, sizeof(TCell)*MAXCOLS);
             for (int c2 = 0; c2 < tCols; c2++)
                 activeBuf()[scrollBot][c2] = {0, curFg, curBg, false};
         }
@@ -1890,7 +1889,6 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
         for (int rep = 0; rep < n2; rep++) {
             for (int r = scrollBot; r > fromRow; r--)
                 memcpy(activeBuf()[r], activeBuf()[r-1], sizeof(TCell)*MAXCOLS);
-            memset(activeBuf()[fromRow], 0, sizeof(TCell)*MAXCOLS);
             for (int c2 = 0; c2 < tCols; c2++)
                 activeBuf()[fromRow][c2] = {0, curFg, curBg, false};
         }
