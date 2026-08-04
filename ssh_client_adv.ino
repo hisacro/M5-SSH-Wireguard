@@ -1604,16 +1604,14 @@ static void sshConnectTask(void* arg) {
         ctx->state = 2; vTaskDelete(NULL); return;
     }
 
-    //int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30, pub =1;
-    // more logs
-    int verb = SSH_LOG_PROTOCOL, port = p.port, timeout = 30, pub =1;
+    int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30;
     ssh_options_set(ctx->sess, SSH_OPTIONS_HOST, p.host);
     ssh_options_set(ctx->sess, SSH_OPTIONS_USER, p.user);
     ssh_options_set(ctx->sess, SSH_OPTIONS_PORT, &port);
     ssh_options_set(ctx->sess, SSH_OPTIONS_LOG_VERBOSITY, &verb);
     ssh_options_set(ctx->sess, SSH_OPTIONS_TIMEOUT, &timeout);
     // added.
-    ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
+    // ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
     if (g_taskAbort || ssh_connect(ctx->sess) != SSH_OK) {
         if (g_taskAbort) strlcpy(ctx->errmsg, "Aborted", sizeof(ctx->errmsg));
         else snprintf(ctx->errmsg, sizeof(ctx->errmsg), "Conn: %s", ssh_get_error(ctx->sess));
@@ -1656,8 +1654,7 @@ static void sshConnectTask(void* arg) {
 
     ctx->ch = ssh_channel_new(ctx->sess);
     int termCols = (g_cfg.termFontSize == 2) ? TERM_COLS/2 : TERM_COLS;
-    // int termRows = (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS;
-    int termRows = (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2))/2 : TERM_ROWS+(g_cfg.titleToggle*2);
+    int termRows = (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS;
 
     if (!ctx->ch ||
         ssh_channel_open_session(ctx->ch) != SSH_OK ||
@@ -1827,8 +1824,7 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
 
     auto lh       = [&]() { return g_cfg.termFontSize * 8; };
     auto termCols = [&]() { return (g_cfg.termFontSize == 2) ? TERM_COLS/2 : TERM_COLS; };
-    // auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS; };
-    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2))/2 : TERM_ROWS+(g_cfg.titleToggle*2); };
+    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS; };
     auto cw       = [&]() { return g_cfg.termFontSize * 6; };
     auto rowY     = [&](int r) { return TOP + r * lh(); };
     auto activeBuf= [&]() -> TCell(*)[MAXCOLS] { return tbuf[altScreen ? 1 : 0]; };
