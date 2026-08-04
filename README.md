@@ -12,6 +12,7 @@ A full-featured SSH client for the [M5Stack Cardputer](https://docs.m5stack.com/
 - **Multiple SSH profiles** — stored on SD card, each with its own host, user, port, and optional WireGuard config
 - **WireGuard config import** — drop standard `.conf` files onto the SD card, pick them from a menu
 - **Two font sizes** — toggle in-session with `Fn+F` (40×14 or 20×7 characters)
+- **Toggle Title Bar** - Hide the Terminal bar with `Fn+H` (40x16 or 20x8 characters)
 - **WiFi manager** — scan, connect, save credentials; auto-connect on boot
 - **Settings** — screen timeout, SSH idle timeout, brightness, keep-alive, password display mode
 - **Remembered usernames** — recently used SSH usernames offered as quick picks
@@ -113,6 +114,7 @@ The Cardputer-Adv requires manual download mode:
 | `Fn + ; . , /` | Arrow keys (↑ ↓ ← →) |
 | `Fn + Q` | Quit session |
 | `Fn + F` | Toggle font size (40×14 ↔ 20×7) |
+| `Fn + H` | Toggle Terminal Title Bar |
 | `Ctrl + letter` | Send control character (`^C`, `^D`, `^Z` …) |
 | `Ctrl + [` | Send ESC (for vim) |
 | `Tab` | Tab / shell completion |
