@@ -1604,14 +1604,16 @@ static void sshConnectTask(void* arg) {
         ctx->state = 2; vTaskDelete(NULL); return;
     }
 
-    int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30;
+    //int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30, pub =1;
+    // more logs
+    int verb = SSH_LOG_PROTOCOL, port = p.port, timeout = 30, pub =1;
     ssh_options_set(ctx->sess, SSH_OPTIONS_HOST, p.host);
     ssh_options_set(ctx->sess, SSH_OPTIONS_USER, p.user);
     ssh_options_set(ctx->sess, SSH_OPTIONS_PORT, &port);
     ssh_options_set(ctx->sess, SSH_OPTIONS_LOG_VERBOSITY, &verb);
     ssh_options_set(ctx->sess, SSH_OPTIONS_TIMEOUT, &timeout);
     // added.
-    // ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
+    ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
     if (g_taskAbort || ssh_connect(ctx->sess) != SSH_OK) {
         if (g_taskAbort) strlcpy(ctx->errmsg, "Aborted", sizeof(ctx->errmsg));
         else snprintf(ctx->errmsg, sizeof(ctx->errmsg), "Conn: %s", ssh_get_error(ctx->sess));
@@ -1878,7 +1880,6 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
         for (int rep = 0; rep < n2; rep++) {
             for (int r = fromRow; r < scrollBot; r++)
                 memcpy(activeBuf()[r], activeBuf()[r+1], sizeof(TCell)*MAXCOLS);
-            memset(activeBuf()[scrollBot], 0, sizeof(TCell)*MAXCOLS);
             for (int c2 = 0; c2 < tCols; c2++)
                 activeBuf()[scrollBot][c2] = {0, curFg, curBg, false};
         }
@@ -1890,7 +1891,6 @@ void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
         for (int rep = 0; rep < n2; rep++) {
             for (int r = scrollBot; r > fromRow; r--)
                 memcpy(activeBuf()[r], activeBuf()[r-1], sizeof(TCell)*MAXCOLS);
-            memset(activeBuf()[fromRow], 0, sizeof(TCell)*MAXCOLS);
             for (int c2 = 0; c2 < tCols; c2++)
                 activeBuf()[fromRow][c2] = {0, curFg, curBg, false};
         }
