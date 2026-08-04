@@ -22,6 +22,7 @@
  *   Fn + ; . , /  →  Up / Down / Left / Right arrow
  *   Fn + Q        →  Quit session
  *   Fn + F        →  Toggle font size
+ *   Fn + H        →  Toggle Title Bar
  *   Ctrl + letter →  Send control character (^C, ^D, ^Z …)
  *   G0 button     →  Quit session
  */
@@ -35,6 +36,9 @@
 #include "libssh_esp32.h"
 #include <libssh/libssh.h>
 #include "lwip/sockets.h"
+
+#define TERM_COLS 40
+#define TERM_ROWS 14
 
 // ── Display ────────────────────────────────────────────────────────────────────
 #define DW       240
@@ -93,6 +97,12 @@ struct Profile {
     char wg_addr[24];
     char wg_pubkey[50];
     char wg_endpoint[48];
+
+    // for keys, 
+    bool use_ssh_keys;
+    char ssh_pubkey_file[40];
+    char ssh_pubkey[80];
+    char ssh_privkey[412];
 };
 
 struct LItem {
@@ -108,6 +118,7 @@ struct Settings {
     int  sshTimeoutMin;
     int  wifiTimeoutMin;
     int  brightness;
+    int  titleToggle;
     int  termFontSize;
     bool keepAlive;
     bool buzzer;
@@ -161,7 +172,7 @@ bool     g_wifiOk    = false;
 char     g_users[MAX_USR][32];
 int      g_userCnt   = 0;
 
-Settings g_cfg = { 60, 0, 0, 128, 1, true, false, 22, true, 0 };
+Settings g_cfg = { 60, 0, 0, 128, 0, 1, true, false, 22, true, 0 };
 
 struct SSHTaskCtx {
     Profile      prof;
@@ -184,6 +195,7 @@ const char* P_WIFI  = "/SSHAdv/wifi.cfg";
 const char* P_USERS = "/SSHAdv/users.cfg";
 const char* P_SETT  = "/SSHAdv/settings.cfg";
 const char* P_WG    = "/SSHAdv/wg";
+const char* P_SSHKEY    = "/SSHAdv/keys";
 
 // ── Forward declarations ───────────────────────────────────────────────────────
 void runHome();
@@ -206,7 +218,7 @@ void drawGearIcon(int cx, int cy, uint16_t col);
 void touchActivity() {
     g_lastAct = millis();
     if (g_dimmed) {
-        M5Cardputer.Display.setBrightness(128);
+        M5Cardputer.Display.setBrightness(g_cfg.brightness);
         g_dimmed = false;
     }
 }
@@ -334,7 +346,21 @@ bool wgStart(const Profile& p, const char* fp) {
     String ep = p.wg_endpoint;
     int co = ep.lastIndexOf(':');
     if (co < 0) { bprint("Bad WG endpoint!", C_ERR); delay(2000); return false; }
-    configTime(0, 0, "pool.ntp.org", "time.google.com"); delay(800);
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+
+    bprintf(C_OK,"Wait NTP ready");
+    time_t now = 0;
+    while (now < 1000000000L) { // check time is newer than 2001 year
+        time(&now);
+        delay(500);
+        M5Cardputer.Display.print('.');    
+    }
+    M5Cardputer.Display.print("\n");
+    struct tm *tm_info = localtime(&now);
+    char tbuf[32];
+    strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", tm_info);
+    bprintf(C_DIM, "time:%s", tbuf);   
+
     g_prevDefaultNetif = netif_default;
     g_wg = new WireGuard();
     g_wg->begin(tun, p.wg_privkey, ep.substring(0, co).c_str(),
@@ -343,6 +369,9 @@ bool wgStart(const Profile& p, const char* fp) {
     g_wgTcpUsed = false;
     strncpy(g_wgFingerprint, fp, sizeof(g_wgFingerprint)-1);
     bprint("WG up.", C_OK);
+
+    delay(1000);    // this delay is important for waiting netif ready
+
     return true;
 }
 
@@ -605,6 +634,7 @@ void loadSettings() {
         else if (k=="ssh_timeout")    g_cfg.sshTimeoutMin    = v;
         else if (k=="wifi_timeout")   g_cfg.wifiTimeoutMin   = v;
         else if (k=="brightness")     g_cfg.brightness       = v;
+        else if (k=="title_toggle")   g_cfg.titleToggle      = (v==1)?1:0;
         else if (k=="term_font")      g_cfg.termFontSize     = (v==2)?2:1;
         else if (k=="keepalive")      g_cfg.keepAlive        = (v==1);
         else if (k=="buzzer")         g_cfg.buzzer           = (v==1);
@@ -621,8 +651,8 @@ void saveSettings() {
     File f = SD.open(P_SETT, FILE_WRITE); if (!f) return;
     f.printf("screen_timeout=%d\nssh_timeout=%d\nwifi_timeout=%d\n",
              g_cfg.screenTimeoutSec, g_cfg.sshTimeoutMin, g_cfg.wifiTimeoutMin);
-    f.printf("brightness=%d\nterm_font=%d\nkeepalive=%d\nbuzzer=%d\ndefault_port=%d\nauto_connect=%d\npass_display=%d\n",
-             g_cfg.brightness, g_cfg.termFontSize, g_cfg.keepAlive?1:0,
+    f.printf("brightness=%d\ntitle_toggle=%d\nterm_font=%d\nkeepalive=%d\nbuzzer=%d\ndefault_port=%d\nauto_connect=%d\npass_display=%d\n",
+             g_cfg.brightness, g_cfg.titleToggle, g_cfg.termFontSize, g_cfg.keepAlive?1:0,
              g_cfg.buzzer?1:0, g_cfg.defaultPort, g_cfg.autoConnect?1:0,
              g_cfg.passDisplay);
     f.close();
@@ -632,6 +662,8 @@ void saveSettings() {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  FILE I/O  (profiles, wifi, users)
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ssh keys
 
 String profPath(const char* n) { return String("/SSHAdv/") + n + ".prof"; }
 
@@ -654,6 +686,9 @@ bool parseProf(File& f, Profile& p) {
         else if (k=="wg_addr")     strncpy(p.wg_addr,     v.c_str(), sizeof(p.wg_addr)-1);
         else if (k=="wg_pubkey")   strncpy(p.wg_pubkey,   v.c_str(), sizeof(p.wg_pubkey)-1);
         else if (k=="wg_endpoint") strncpy(p.wg_endpoint, v.c_str(), sizeof(p.wg_endpoint)-1);
+        else if (k=="ssh_keys")    p.use_ssh_keys = (v=="1");
+        else if (k=="ssh_pubkey_file") strncpy(p.ssh_pubkey_file, v.c_str(), sizeof(p.ssh_pubkey_file)-1);
+
     }
     return p.name[0] && p.host[0];
 }
@@ -678,6 +713,8 @@ void saveProf(const Profile& p) {
              p.name, p.host, p.user, p.pass, p.port);
     f.printf("wg=%d\nwg_conffile=%s\nwg_privkey=%s\nwg_addr=%s\nwg_pubkey=%s\nwg_endpoint=%s\n",
              p.useWG?1:0, p.wg_conffile, p.wg_privkey, p.wg_addr, p.wg_pubkey, p.wg_endpoint);
+    f.printf("ssh_keys=%d\nssh_pubkey_file=%s\n",
+             p.use_ssh_keys?1:0, p.ssh_pubkey_file);
     f.close();
 }
 
@@ -793,6 +830,122 @@ bool pickWGConf(Profile& p) {
     return false;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SSH_KEYS CONFIG PICKER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+bool parseSSHKEYFile(const char* path, Profile& p) {
+    // save public key
+    File f = SD.open(path); 
+    if (!f) {
+      bprint("Pub keys are not present", C_ERR);
+      return false;
+    } else {
+      bprint("Pub keys presence", C_OK);
+    }
+
+    while (f.available()) {
+        String ln = f.readString(); ln.trim();
+        int eq = ln.indexOf(' '); if (eq<0) continue;
+        // make sure generated key is of ssh-ed22519 format with 80 chars  
+        int eq2 = ln.lastIndexOf(' '); 
+        if (eq2!=80) {
+          bprint("less than 80 chars", C_ERR);
+          continue; 
+        }
+        String k = ln.substring(0,eq); k.trim();
+        String v = ln.substring(eq+1, eq2); v.trim();
+
+        if (k=="ssh-ed25519") {
+          strncpy(p.ssh_pubkey,  v.c_str(), sizeof(p.ssh_pubkey)-1);
+        } else {
+          bprint("Use ed25519", C_ERR);
+          continue;
+        }
+        M5Cardputer.Display.print(p.ssh_pubkey);
+     }
+    f.close();
+
+    return p.ssh_pubkey[0]; 
+}
+
+bool parseSSHKEYFile_Priv(const char* path, Profile& p) {
+    // save private key
+    File f = SD.open(path); 
+    
+    if (!f) {
+      bprint("Priv keys are not present", C_ERR);
+      return false;
+    } else {
+      bprint("Priv keys presence", C_OK);
+    }
+
+    while (f.available()) {
+      String ln = f.readString(); ln.trim();
+      strncpy(p.ssh_privkey,  ln.c_str(), sizeof(p.ssh_privkey)-1);
+    }
+    f.close();
+
+    return p.ssh_privkey[0]; 
+}
+
+
+bool pickSSHConf(Profile& p) {
+    static char names[MAX_WGF][40];
+    static const char* ptrs[MAX_WGF];
+    int n = 0;
+    File dir = SD.open(P_SSHKEY);
+    if (dir && dir.isDirectory()) {
+        File e;
+        while ((e = dir.openNextFile()) && n < MAX_WGF) {
+            String fn = String(e.name());
+            int slash = fn.lastIndexOf('/');
+            if (slash >= 0) fn = fn.substring(slash + 1);
+            if (fn.length() > 0 && fn.endsWith(".pub")) {
+                strncpy(names[n], fn.c_str(), 39);
+                names[n][39] = '\0';
+                ptrs[n] = names[n];
+                n++;
+            }
+            e.close();
+        }
+        dir.close();
+    }
+
+    if (n == 0) {
+        screenInit("SSH keys Files", ",=back");
+        bprint("No .pub files found!", C_WARN);
+        bprint("Copy public keys & priv keys", C_DIM);
+        bprint("to the SD card at:", C_DIM);
+        bprint("/SSHAdv/keys/", C_TITFG);
+        bprint("e.g. /SSHAdv/keys/", C_DIM);
+        bprint("     t.pub t", C_DIM);
+        bprint("Then retry.", C_DIM);
+        while (waitCh() != KLEFT) {}
+        return false;
+    }
+
+    int ch = pickStr(ptrs, n, "Key pairs No.");
+    if (ch < 0) return false;
+
+    screenInit("Loading Key pairs", "");
+    bprintf(C_DIM, "Loading: %s", names[ch]);
+    String path = String(P_SSHKEY) + "/" + names[ch];
+    if (parseSSHKEYFile(path.c_str(), p)) {
+        strncpy(p.ssh_pubkey_file, names[ch], sizeof(p.ssh_pubkey_file)-1);
+        bprint("Pubkey Parsed OK", C_OK); delay(600);
+        // remove the .pub for privkey
+       	path.remove(path.lastIndexOf('.'));
+        if (parseSSHKEYFile_Priv(path.c_str(), p)) {
+        	bprint("PrivKey Parsed OK", C_OK); delay(600);
+        	return true;
+	}
+    }
+    bprint("Parse failed!", C_ERR); delay(1200);
+    return false;
+}
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PROFILE DETAIL CARD
@@ -840,8 +993,14 @@ void profileCard(const Profile& p) {
     } else {
         row("WG:    ", "disabled", C_DIM);
     }
-}
 
+    if (p.use_ssh_keys) {
+        row("Public:   ", p.ssh_pubkey_file);
+    } else {
+        row("keys:    ", "disabled", C_DIM);
+    }
+
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PROFILE EDIT / CREATE
@@ -928,6 +1087,21 @@ void editProfile(int idx) {
             }
         }
     }
+
+    { const char* so[]={ "No SSH KEYS","Use KEYS" };
+      int ch=pickStr(so,2,"KEYS",p.use_ssh_keys?1:0);
+      if (ch>=0) p.use_ssh_keys=(ch==1);
+    }
+
+    // ssh key picker
+    if (p.use_ssh_keys) {
+        const char* sshOpts[] = { "Pick key pairs", "Cancel" };
+        int sshChoice = pickStr(sshOpts, 2, "SSH keys");
+        if (sshChoice == 0) {
+            pickSSHConf(p);
+        } 
+    }
+
 
     if (yesNo(p.name,"Save profile?",true)) {
         if (!isNew && strcmp(g_prof[idx].name,p.name)!=0)
@@ -1178,17 +1352,22 @@ void runSettings() {
 
         } else if (cat == 1) {
             while (true) {
-                char fntBuf[32], buzBuf[32];
+                char titleBuf[32], fntBuf[32], buzBuf[32];
+                snprintf(titleBuf, sizeof(titleBuf), "Title Toggle   %d", g_cfg.titleToggle);
                 snprintf(fntBuf, sizeof(fntBuf), "Font size   %d", g_cfg.termFontSize);
                 snprintf(buzBuf, sizeof(buzBuf), "Buzzer      %s", g_cfg.buzzer ? "On" : "Off");
-                const char* opts[] = { fntBuf, buzBuf, "< Back" };
-                int ch = pickStr(opts, 3, "Terminal");
-                if (ch < 0 || ch == 2) break;
+                const char* opts[] = { titleBuf, fntBuf, buzBuf, "< Back" };
+                int ch = pickStr(opts, 4, "Terminal");
+                if (ch < 0 || ch == 3) break;
                 if (ch == 0) {
+                    const char* sc[] = { "0  No", "1  Yes" };
+                    int p = pickStr(sc, 2, "Remove Top bar", g_cfg.titleToggle == 1 ? 1 : 0);
+                    if (p >= 0) { g_cfg.titleToggle = (p == 1) ? 1: 0; saveSettings(); }
+                } else if (ch == 1) { 
                     const char* sc[] = { "1  (more text)", "2  (larger)" };
                     int p = pickStr(sc, 2, "Font Size", g_cfg.termFontSize == 2 ? 1 : 0);
                     if (p >= 0) { g_cfg.termFontSize = (p == 1) ? 2 : 1; saveSettings(); }
-                } else if (ch == 1) {
+                } else if (ch == 2) {
                     const char* sc[] = { "Off", "On" };
                     int p = pickStr(sc, 2, "Buzzer", g_cfg.buzzer ? 1 : 0);
                     if (p >= 0) { g_cfg.buzzer = (p == 1); saveSettings(); }
@@ -1363,6 +1542,58 @@ void runHome() {
 //  CONNECT  (WireGuard + SSH)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+static int auth_keyfile(ssh_session session, char* keyfile,  const char* pubkey,  const char* prikey)
+{
+    ssh_key key = NULL;
+
+    int rc;
+   
+    // --------- Public key importing.
+    rc = ssh_pki_import_pubkey_base64(pubkey, SSH_KEYTYPE_ED25519, &key);  // import value to key
+
+    if (rc == SSH_OK)  { 
+    	bprint("File exists...", C_OK);
+    }
+    else if (rc == SSH_EOF) {
+    	bprint("File doesn't exists...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+    else if (rc == SSH_ERROR) {
+    	bprint("Key Parsing Error...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+
+    // --------- Public key imported from file check. 
+    rc = ssh_userauth_try_publickey(session, NULL, key);
+    ssh_key_free(key);
+
+    if (rc == SSH_AUTH_SUCCESS) {
+    	bprint("KEYauth accepted...", C_OK);
+    }
+    else if (rc == SSH_AUTH_ERROR) {
+ 	bprint("KEYauth failed...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+    else if (rc == SSH_AUTH_DENIED) {
+ 	bprint("KEYauth Denied...", C_ERR);
+        return SSH_AUTH_DENIED;
+    }
+
+    // --------- Private key importing.
+    rc = ssh_pki_import_privkey_base64(prikey, nullptr, nullptr, nullptr, &key);
+
+    if (rc != SSH_OK) {
+   	bprint("Privkey Denied...", C_ERR);
+        return SSH_AUTH_DENIED;
+     }
+
+    rc = ssh_userauth_publickey(session, NULL, key);
+    ssh_key_free(key);
+
+    return rc;
+}
+
+
 static void sshConnectTask(void* arg) {
     SSHTaskCtx* ctx = (SSHTaskCtx*)arg;
     const Profile& p = ctx->prof;
@@ -1379,7 +1610,8 @@ static void sshConnectTask(void* arg) {
     ssh_options_set(ctx->sess, SSH_OPTIONS_PORT, &port);
     ssh_options_set(ctx->sess, SSH_OPTIONS_LOG_VERBOSITY, &verb);
     ssh_options_set(ctx->sess, SSH_OPTIONS_TIMEOUT, &timeout);
-
+    // added.
+    // ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
     if (g_taskAbort || ssh_connect(ctx->sess) != SSH_OK) {
         if (g_taskAbort) strlcpy(ctx->errmsg, "Aborted", sizeof(ctx->errmsg));
         else snprintf(ctx->errmsg, sizeof(ctx->errmsg), "Conn: %s", ssh_get_error(ctx->sess));
@@ -1402,15 +1634,28 @@ static void sshConnectTask(void* arg) {
         }
     }
 
-    if (ssh_userauth_password(ctx->sess, nullptr, p.pass) != SSH_AUTH_SUCCESS) {
-        strlcpy(ctx->errmsg, "Auth failed", sizeof(ctx->errmsg));
-        ssh_disconnect(ctx->sess); ssh_free(ctx->sess); ctx->sess = nullptr;
-        ctx->state = 2; vTaskDelete(NULL); return;
+    if  (p.use_ssh_keys) {
+        // push content from profile's key pairs to p.ssh_pubkey, p.ssh_privkey
+        String path = String(P_SSHKEY) + "/" + String(p.ssh_pubkey_file);
+        parseSSHKEYFile(path.c_str(), ctx->prof);
+       	path.remove(path.lastIndexOf('.'));
+        parseSSHKEYFile_Priv(path.c_str(), ctx->prof);
+
+        if  (auth_keyfile(ctx->sess, nullptr ,p.ssh_pubkey, p.ssh_privkey) != SSH_AUTH_SUCCESS) {
+            	strlcpy(ctx->errmsg, "Key Auth Failed", sizeof(ctx->errmsg));
+            	ssh_disconnect(ctx->sess); ssh_free(ctx->sess); ctx->sess = nullptr;
+	            ctx->state = 2; vTaskDelete(NULL); return;
+        	}
+        } else if (ssh_userauth_password(ctx->sess, nullptr, p.pass) != SSH_AUTH_SUCCESS) {
+            strlcpy(ctx->errmsg, "Password Auth failed", sizeof(ctx->errmsg));
+            ssh_disconnect(ctx->sess); ssh_free(ctx->sess); ctx->sess = nullptr;
+            ctx->state = 2; vTaskDelete(NULL); return;
     }
 
     ctx->ch = ssh_channel_new(ctx->sess);
-    int termCols = (g_cfg.termFontSize == 2) ? 20 : 40;
-    int termRows = (g_cfg.termFontSize == 2) ?  7 : 14;
+    int termCols = (g_cfg.termFontSize == 2) ? TERM_COLS/2 : TERM_COLS;
+    // int termRows = (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS;
+    int termRows = (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2))/2 : TERM_ROWS+(g_cfg.titleToggle*2);
 
     if (!ctx->ch ||
         ssh_channel_open_session(ctx->ch) != SSH_OK ||
@@ -1471,6 +1716,7 @@ void runConnect(int idx) {
     bprint("SSH connecting...", C_DIM);
     g_taskAbort = false;
     g_sshTask   = nullptr;
+    // initialization. 
     xTaskCreatePinnedToCore(sshConnectTask, "ssh_conn", 32768,
                             &g_sshCtx, 5, &g_sshTask, 0);
     if (!g_sshTask) {
@@ -1522,9 +1768,10 @@ void runConnect(int idx) {
     ssh_channel ch   = g_sshCtx.ch;
 
     M5Cardputer.Display.fillScreen(C_BG);
-    titleBar(p.name);
+    // toggle Title Bar
+    if (g_cfg.titleToggle == 0) titleBar(p.name);
 
-    runSSHTerm(sess, ch);
+    runSSHTerm(sess, ch, p.name);
 
     if (ch) {
         ssh_channel_send_eof(ch);
@@ -1558,12 +1805,14 @@ struct TCell {
     bool     bold;
 };
 
-void runSSHTerm(ssh_session sess, ssh_channel ch) {
-    const int TOP  = TITLEH + 2;
+void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name) {
+    // variable to store toggling
+    auto title_tog = [&]() { return (g_cfg.titleToggle == 1) ? 4: TITLEH+2; };
+    int TOP  = title_tog(); 
     const int BOT  = DH - HINTH;
 
-    const int MAXCOLS = 40;
-    const int MAXROWS = 14;
+    const int MAXCOLS = TERM_COLS;
+    const int MAXROWS = TERM_ROWS;
 
     static TCell tbuf[2][MAXROWS][MAXCOLS];
     static int   tcx, tcy;
@@ -1571,10 +1820,13 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
     static int   tCols, tRows;
     static int   scrollTop, scrollBot;
     static bool  altScreen;
+    static bool cursorVisible = true;
+    static int  lastCursorX = -1, lastCursorY = -1;
 
     auto lh       = [&]() { return g_cfg.termFontSize * 8; };
-    auto termCols = [&]() { return (g_cfg.termFontSize == 2) ? 20 : 40; };
-    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ?  7 : 14; };
+    auto termCols = [&]() { return (g_cfg.termFontSize == 2) ? TERM_COLS/2 : TERM_COLS; };
+    // auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? TERM_ROWS/2 : TERM_ROWS; };
+    auto termRows = [&]() { return (g_cfg.termFontSize == 2) ? (TERM_ROWS+(g_cfg.titleToggle*2))/2 : TERM_ROWS+(g_cfg.titleToggle*2); };
     auto cw       = [&]() { return g_cfg.termFontSize * 6; };
     auto rowY     = [&](int r) { return TOP + r * lh(); };
     auto activeBuf= [&]() -> TCell(*)[MAXCOLS] { return tbuf[altScreen ? 1 : 0]; };
@@ -1616,6 +1868,11 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
         M5Cardputer.Display.setTextColor(C_FG, C_BG);
     };
 
+    auto redrawRegion = [&](int rowFrom, int rowTo) {
+        for (int r = rowFrom; r <= rowTo; r++)
+            drawRow(r);
+    };
+
     auto scrollRegionUp = [&](int n2, int fromRow = -1) {
         if (fromRow < 0) fromRow = scrollTop;
         for (int rep = 0; rep < n2; rep++) {
@@ -1625,7 +1882,7 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
             for (int c2 = 0; c2 < tCols; c2++)
                 activeBuf()[scrollBot][c2] = {0, curFg, curBg, false};
         }
-        redrawAll();
+        redrawRegion(fromRow, scrollBot);
     };
 
     auto scrollRegionDown = [&](int n2, int fromRow = -1) {
@@ -1637,7 +1894,7 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
             for (int c2 = 0; c2 < tCols; c2++)
                 activeBuf()[fromRow][c2] = {0, curFg, curBg, false};
         }
-        redrawAll();
+        redrawRegion(fromRow, scrollBot);
     };
 
     auto clearBuf = [&](int bufIdx) {
@@ -1655,6 +1912,28 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
         activeBuf()[tcy][tcx] = {c2, curFg, curBg, curBold};
         drawCell(tcx, tcy);
         tcx++;
+    };
+
+    auto eraseCursor = [&]() {
+        if (lastCursorX >= 0 && lastCursorY >= 0) {
+            drawCell(lastCursorX, lastCursorY);
+            lastCursorX = lastCursorY = -1;
+        }
+    };
+
+    auto drawCursor = [&]() {
+        if (!cursorVisible) return;
+        if (tcx >= tCols || tcy >= tRows) return;
+        eraseCursor();
+        M5Cardputer.Display.fillRect(tcx * cw(), rowY(tcy), cw(), lh(), C_FG);
+        auto& cell = activeBuf()[tcy][tcx];
+        if (cell.ch && cell.ch != ' ') {
+            M5Cardputer.Display.setTextColor(curBg, C_FG);
+            M5Cardputer.Display.setCursor(tcx * cw(), rowY(tcy));
+            M5Cardputer.Display.write(cell.ch);
+        }
+        lastCursorX = tcx;
+        lastCursorY = tcy;
     };
 
     // Init
@@ -1721,16 +2000,35 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
                             showHint();
                             ssh_channel_change_pty_size(ch, tCols, tRows);
                         }
+
+                        // hide_TOPS
+                         if (a == 'h') {
+                            g_cfg.titleToggle =  (g_cfg.titleToggle == 0) ? 1: 0;
+                            saveSettings();
+                            TOP  = title_tog(); 
+                            tCols = termCols(); tRows = termRows();
+                            scrollTop = 0; scrollBot = tRows - 1;
+                            clearBuf(0); clearBuf(1);
+                            if (g_cfg.titleToggle == 0) {
+                               titleBar(name);
+                             } else {
+                               M5Cardputer.Display.fillRect(0, 0, DW, TOP, C_BG);
+                            }
+                            M5Cardputer.Display.fillRect(0, TOP , DW, BOT - TOP, C_BG);
+                            showHint();
+                            ssh_channel_change_pty_size(ch, tCols, tRows);
+                        }
+                       
                         if (hid == 0x33) ssh_channel_write(ch, "\x1b[A", 3);
                         if (hid == 0x37) ssh_channel_write(ch, "\x1b[B", 3);
-                        if (hid == 0x36) ssh_channel_write(ch, "\x1b[D", 3);
                         if (hid == 0x38) ssh_channel_write(ch, "\x1b[C", 3);
+                        if (hid == 0x36) ssh_channel_write(ch, "\x1b[D", 3);
+                        if (hid == 0x35) { const char e = 0x1B; ssh_channel_write(ch, &e, 1); }
                     }
                 } else if (isCtrl()) {
                     for (auto hid : st.hid_keys) {
                         char a = hidToAlpha(hid);
                         if (a) { char cc = a - 'a' + 1; ssh_channel_write(ch, &cc, 1); }
-                        if (hid == 0x2F) { const char e = 0x1B; ssh_channel_write(ch, &e, 1); }
                     }
                 } else {
                     for (auto c2 : st.word) {
@@ -1770,15 +2068,17 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
                         char* s = csiBuf;
                         while (*s && pc < 8) {
                             if (*s >= '0' && *s <= '9') {
-                                p[pc] = atoi(s);
-                                while (*s >= '0' && *s <= '9') s++;
-                                pc++;
+                                if (p[pc] < 0) p[pc] = 0;
+                                p[pc] = p[pc] * 10 + (*s - '0');
+                                s++;
                             } else if (*s == ';') {
                                 if (p[pc] < 0) p[pc] = 0;
                                 pc++;
                                 s++;
                             } else s++;
                         }
+                        if (p[pc] >= 0) pc++; // count the last number
+
                         auto P1 = [&](int def) { return (p[0] < 0) ? def : p[0]; };
                         auto P2 = [&](int def) { return (p[1] < 0) ? def : p[1]; };
 
@@ -1787,6 +2087,8 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
                                 bool set = (c2 == 'h');
                                 int mode = P1(0);
                                 if (mode == 25) {
+                                  cursorVisible = set;
+                                  if (!set) eraseCursor();
                                 } else if (mode == 1049 || mode == 47 || mode == 1047) {
                                     if (set && !altScreen) {
                                         altScreen = true;
@@ -1947,8 +2249,13 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
                     continue;
                 }
                 if (c2 == 0x08) {
-                    if(tcx>0){tcx--; activeBuf()[tcy][tcx]={0,curFg,curBg,false};
-                    M5Cardputer.Display.fillRect(tcx*cw(),rowY(tcy),cw(),lh(),curBg);}
+                    if(tcx>0){
+                        tcx--;
+                        if(!altScreen) {
+                            activeBuf()[tcy][tcx]={0,curFg,curBg,false};
+                            M5Cardputer.Display.fillRect(tcx*cw(),rowY(tcy),cw(),lh(),curBg);
+                        }
+                    }
                     continue;
                 }
                 if (c2 == 0x7F) {
@@ -2007,6 +2314,7 @@ void runSSHTerm(ssh_session sess, ssh_channel ch) {
                 putChar((char)c2);
             }
         }
+        if (n > 0) drawCursor();        
         if (n < 0 || ssh_channel_is_closed(ch)) break;
     }
     done:;
@@ -2035,8 +2343,9 @@ void setup() {
 
     bool sdOk=SD.begin(M5.getPin(m5::pin_name_t::sd_spi_ss));
     if (sdOk) {
-        if (!SD.exists("/SSHAdv"))    SD.mkdir("/SSHAdv");
+        if (!SD.exists("/SSHAdv"))   SD.mkdir("/SSHAdv");
         if (!SD.exists(P_WG))        SD.mkdir(P_WG);
+        if (!SD.exists(P_SSHKEY))   SD.mkdir(P_SSHKEY);
         loadProfiles();
         loadUsers();
         loadSettings();
@@ -2066,7 +2375,7 @@ void setup() {
 
     // Auto-connect after WG config switch restart
     if (g_bootProfileIdx >= 0) {
-        int autoIdx = g_bootProfileIdx;
+        int autoIdx = g_bootProfileIdx;   
         g_bootProfileIdx = -1;
         if (autoIdx < g_profCnt && g_wifiOk) {
             bprint("Resuming...", C_DIM);

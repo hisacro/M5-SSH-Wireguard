@@ -12,9 +12,11 @@ A full-featured SSH client for the [M5Stack Cardputer](https://docs.m5stack.com/
 - **Multiple SSH profiles** — stored on SD card, each with its own host, user, port, and optional WireGuard config
 - **WireGuard config import** — drop standard `.conf` files onto the SD card, pick them from a menu
 - **Two font sizes** — toggle in-session with `Fn+F` (40×14 or 20×7 characters)
+- **Toggle Title Bar** - Hide the Terminal bar with `Fn+H` (40x16 or 20x8 characters)
 - **WiFi manager** — scan, connect, save credentials; auto-connect on boot
 - **Settings** — screen timeout, SSH idle timeout, brightness, keep-alive, password display mode
 - **Remembered usernames** — recently used SSH usernames offered as quick picks
+- **SSH Keys** — Supports multiple password less ed25519 type key pairs
 
 ---
 
@@ -63,12 +65,20 @@ Install WireGuard-ESP32-bis and LibSSH-ESP32 via **Sketch → Include Library �
 ├── settings.cfg    — all app settings
 ├── 0.prof          — SSH profile 0
 ├── 1.prof          — SSH profile 1
-└── wg/
-    ├── home.conf   — WireGuard config (standard format)
-    └── work.conf
+├── wg/
+│   ├── home.conf   — WireGuard config (standard format)
+│   └── work.conf
+└── keys/
+    ├── id_ed25519.pub    — Passwordless ED25519 Public key (standard OpenSSH format)   
+    ├── id_ed25519        — Corresponding private key       
+    ├── id_card_hpc.pub   — Yet another key
+    └── id_card_hpc
+
 ```
 
 WireGuard `.conf` files use the standard format exported by any WireGuard server or client.
+
+SSH Key pairs use the standard OpenSSH format, at the moment package supports only type ed25519 keys (default key type in OpenSSH since version 9.5).
 
 ---
 
@@ -104,6 +114,7 @@ The Cardputer-Adv requires manual download mode:
 | `Fn + ; . , /` | Arrow keys (↑ ↓ ← →) |
 | `Fn + Q` | Quit session |
 | `Fn + F` | Toggle font size (40×14 ↔ 20×7) |
+| `Fn + H` | Toggle Terminal Title Bar |
 | `Ctrl + letter` | Send control character (`^C`, `^D`, `^Z` …) |
 | `Ctrl + [` | Send ESC (for vim) |
 | `Tab` | Tab / shell completion |
