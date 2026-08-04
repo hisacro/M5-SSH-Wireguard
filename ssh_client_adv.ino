@@ -202,7 +202,7 @@ void runHome();
 void runWifiMenu();
 void runProfileList();
 void runConnect(int idx);
-void runSSHTerm(ssh_session sess, ssh_channel ch);
+void runSSHTerm(ssh_session sess, ssh_channel ch, const char* name);
 void editProfile(int idx);
 void runSettings();
 void touchActivity();
@@ -1604,14 +1604,16 @@ static void sshConnectTask(void* arg) {
         ctx->state = 2; vTaskDelete(NULL); return;
     }
 
-    int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30;
+    //int verb = SSH_LOG_NOLOG, port = p.port, timeout = 30, pub =1;
+    // more logs
+    int verb = SSH_LOG_PROTOCOL, port = p.port, timeout = 30, pub =1;
     ssh_options_set(ctx->sess, SSH_OPTIONS_HOST, p.host);
     ssh_options_set(ctx->sess, SSH_OPTIONS_USER, p.user);
     ssh_options_set(ctx->sess, SSH_OPTIONS_PORT, &port);
     ssh_options_set(ctx->sess, SSH_OPTIONS_LOG_VERBOSITY, &verb);
     ssh_options_set(ctx->sess, SSH_OPTIONS_TIMEOUT, &timeout);
     // added.
-    // ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
+    ssh_options_set(ctx->sess, SSH_OPTIONS_PUBKEY_AUTH, &pub);
     if (g_taskAbort || ssh_connect(ctx->sess) != SSH_OK) {
         if (g_taskAbort) strlcpy(ctx->errmsg, "Aborted", sizeof(ctx->errmsg));
         else snprintf(ctx->errmsg, sizeof(ctx->errmsg), "Conn: %s", ssh_get_error(ctx->sess));
